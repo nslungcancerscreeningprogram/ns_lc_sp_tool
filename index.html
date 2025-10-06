@@ -1,0 +1,1476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CT Lung Cancer Screening Clinic Locator Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .address-list-container {
+            border-left: 4px solid #475979;
+        }
+        .input-group {
+            position: relative;
+            display: flex;
+            gap: 0.5rem;
+        }
+        .input-group input {
+            flex-grow: 1;
+        }
+        #suggestionsContainer {
+            position: absolute;
+            z-index: 10;
+            width: calc(100% - 3.5rem); /* Adjust width to account for the button */
+            max-height: 200px;
+            overflow-y: auto;
+            background-color: white;
+            border: 1px solid #e5e7eb;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 4-6px rgba(0, 0, 0, 0.1);
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            top: 100%;
+        }
+        #map {
+            height: 100%;
+            width: 100%;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: height 0.3s ease-in-out;
+        }
+        .clinic-item {
+            transition: background-color 0.2s;
+        }
+    </style>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-start">
+
+    <header class="w-full text-center py-2" style="background-color: #475979;">
+        <h2 class="text-white text-lg md:text-xl font-semibold">Nova Scotia Lung Cancer Screening Program</h2>
+    </header>
+
+    <div class="bg-white p-8 rounded-2xl shadow-2xl w-[95%] mx-auto relative mt-8">
+        <div id="loginContainer" class="flex flex-col items-center justify-center p-8">
+            <h2 class="text-2xl font-bold mb-4 text-gray-800">Please enter the password to access the tool.</h2>
+            <input type="password" id="passwordInput" placeholder="Enter password"
+                   class="w-full max-w-sm p-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all mb-4">
+            <button id="loginButton"
+                    class="w-full max-w-sm text-white font-semibold py-4 rounded-xl shadow-lg transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2" style="background-color: #475979;">
+                Log In
+            </button>
+            <p id="loginMessage" class="mt-4 text-red-500"></p>
+        </div>
+
+        <div id="appContainer" class="hidden">
+            <h1 class="text-3xl font-bold text-center mb-6 text-gray-800">
+                CT Lung Cancer Screening Clinic Locator Tool
+            </h1>
+            <p class="text-center text-gray-600 mb-8">
+                Enter an address in Nova Scotia to find the nearest location offering this service.
+            </p>
+
+            <div class="space-y-4">
+                <div class="input-group">
+                    <input type="text" id="addressInput" placeholder="e.g., 123 Main Street, Halifax, NS"
+                            class="w-full p-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all">
+                    
+                    <div id="suggestionsContainer" class="hidden">
+                        </div>
+                    
+                    <button id="resetButton" class="w-14 h-14 flex items-center justify-center text-gray-500 border border-gray-300 rounded-xl hover:bg-gray-200 transition-colors duration-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-6 h-6">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+
+                <button id="findButton"
+                        class="w-full text-white font-semibold py-4 rounded-xl shadow-lg transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2" style="background-color: #475979; hover:background-color: #80aac6; focus:ring-indigo-500;">
+                    Find Nearest Clinic
+                </button>
+            </div>
+
+            <div id="resultsMapContainer" class="mt-8 hidden">
+                <div id="mapContainer" class="flex flex-col md:flex-row md:space-x-4 h-full items-stretch">
+                    
+                    <div class="w-full md:w-1/4 mb-4 md:mb-0 hidden" id="clinicInfoCol">
+                        <div class="bg-gray-50 h-full p-6 rounded-xl shadow-inner border-l-4 overflow-y-auto" style="border-color: #475979;">
+                             <h3 class="text-xl font-semibold text-gray-800 mb-2">Nearest Clinics</h3>
+                             <p class="text-base text-gray-700 mb-4">The following are the top three closest CT Lung Cancer Screening Clinics to the address above:</p>
+                             <div id="clinicsList"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="w-full md:w-full md:w-1/2 mb-4 md:mb-0" id="mapCol">
+                         <div id="map" class="rounded-xl shadow-inner mb-4"></div>
+                    </div>
+                    
+                    <div class="w-full md:w-1/4 flex flex-col space-y-4 hidden" id="dataInfoCol">
+                        <div id="patientInfoBox" class="bg-gray-50 p-6 rounded-xl shadow-inner border-l-4" style="border-color: #475979; background-color: #f0f5f8;">
+                            <h3 class="text-xl font-semibold text-gray-800 mb-2">Information for Prospective Patient</h3>
+                            <div id="patientInfoContent">
+                                 <p class="text-base text-gray-700">Select a clinic from the list on the left to populate this section.</p>
+                                 <div id="transportationInfoContent" class="hidden"></div>
+                            </div>
+                        </div>
+                        <div class="bg-gray-50 h-full p-6 rounded-xl shadow-inner border-l-4" style="border-color: #475979; background-color: #f0f5f8;">
+                             <h3 class="text-xl font-semibold text-gray-800 mb-2">Socioeconomic Data</h3>
+                             <p id="socioeconomicText" class="text-base text-gray-700">Enter an address to display socioeconomic data for that area.</p>
+                             <ul id="socioeconomicList" class="list-disc list-inside ml-4 text-gray-700 hidden"></ul>
+                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="messageBox" class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center hidden z-50">
+                <div class="bg-white p-6 rounded-xl shadow-xl w-80 text-center">
+                    <p id="messageText" class="text-lg text-gray-800 mb-4"></p>
+                    <button id="closeMessage" class="bg-indigo-600 text-white py-2 px-6 rounded-xl hover:bg-indigo-700">OK</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script>
+        // Data for clinics and instructions
+        const clinicInstructions = {
+            "Aberdeen Hospital": (address) => `Your booking is at the Aberdeen Hospital which is located at ${address}.`,
+            "Cumberland Regional Health Care Centre": (address) => `Your booking is at the Cumberland Regional Health Care Centre which is located at ${address}.`,
+            "Colchester East Hants Health Centre": (address) => `Your booking is at the Colchester East Hants Health Centre which is located at ${address}.`,
+            "South Shore Regional Hospital": (address) => `Your booking is at the South Shore Regional Hospital which is located at ${address}. Please arrive 15-20 minutes prior to appointment and bring your Nova Scotia health care card. You will register at Diagnostic Imaging on the main floor.`,
+            "Yarmouth Regional Hospital": (address) => `Your booking is at the Yarmouth Regional Hospital which is located at ${address}.`,
+            "Valley Regional Hospital": (address) => `Your booking is at the Valley Regional Hospital which is located at ${address}. Please arrive with your Nova Scotia health care card.`,
+            "Inverness Consolidated Memorial Hospital": (address) => `Your booking is at the Inverness Consolidated Memorial Hospital which is located at ${address}.`,
+            "Victoria General Hospital": (address) => `Your booking is at the Victoria General Hospital which is located at ${address}. The clinic is located on the 3rd floor of the Dickson Building - Diagnostic Imaging. You do not need to register at the kiosk but can proceed directly to the 3rd floor of the Dickson building.`,
+            "Cape Breton Regional Hospital": (address) => `Your booking is at the Cape Breton Regional Hospital which is located at ${address}. Please use the main entrance and continue down to the DI main registration.`,
+            "St. Martha’s Regional Hospital": (address) => `Your booking is at the St. Martha’s Regional Hospital which is located at ${address}. Come in the main entrance, go past the gift shop, then turn left and go to the end of the hall for DI Registration.`
+        };
+
+        // This function is currently not used but is defined for future use.
+        window.showInstructions = function(locationName, address) {
+            const instructionsBox = document.getElementById('instructionsBox');
+            const instructionsText = document.getElementById('instructionsText');
+            
+            if (instructionsBox && instructionsText) {
+                const instructionsFn = clinicInstructions[locationName];
+                const instructions = instructionsFn ? instructionsFn(address) : `Instructions for ${locationName} are not yet available.`;
+                instructionsText.textContent = instructions;
+                instructionsBox.classList.remove('hidden');
+                instructionsBox.scrollIntoView({ behavior: 'smooth' });
+            }
+        };
+
+        (async function() {
+            // Clinic data (names, addresses, coordinates)
+            const hospitals = [
+                { name: "Aberdeen Hospital", address: "835 East River Road, New Glasgow, NS", lat: 45.5729758405446, lng: -62.64326836972356 },
+                { name: "Cumberland Regional Health Care Centre", address: "19428 Highway #2, Amherst NS", lat: 45.8197, lng: -64.2185 },
+                { name: "Colchester East Hants Health Centre", address: "600 Abenaki Road, Truro NS", lat: 45.3687, lng: -63.2678 },
+                { name: "South Shore Regional Hospital", address: "90 Glen Allan Dr., Bridgewater NS", lat: 44.3855, lng: -64.5202 },
+                { name: "Yarmouth Regional Hospital", address: "60 Vancouver St., Yarmouth NS", lat: 43.8373, lng: -66.1132 },
+                { name: "Valley Regional Hospital", address: "150 Exhibition St., Kentville, N.S.", lat: 45.0747, lng: -64.4920 },
+                { name: "Inverness Consolidated Memorial Hospital", address: "39 James Street, Inverness, NS", lat: 46.22696781337693, lng: -61.30484314307468 },
+                { name: "Victoria General Hospital", address: "1276 South Park Street, Halifax, NS", lat: 44.6433, lng: -63.5794 },
+                { name: "Cape Breton Regional Hospital", address: "1482 George Street, Sydney, NS", lat: 46.1130158306037, lng: -60.174133616836095 },
+                { name: "St. Martha’s Regional Hospital", address: "25 Bay Street, Antigonish, NS", lat: 45.62817596985708, lng: -61.98219333746746 }
+            ];
+            
+            // Socioeconomic score mapping
+            const scoreMap = {
+                '1': 'Very Low',
+                '2': 'Low',
+                '3': 'Moderate (Provincial Average)',
+                '4': 'High',
+                '5': 'Very High'
+            };
+
+            // UI element references
+            const loginContainer = document.getElementById('loginContainer');
+            const passwordInput = document.getElementById('passwordInput');
+            const loginButton = document.getElementById('loginButton');
+            const loginMessage = document.getElementById('loginMessage');
+            const appContainer = document.getElementById('appContainer');
+
+            const addressInput = document.getElementById('addressInput');
+            const findButton = document.getElementById('findButton');
+            const resetButton = document.getElementById('resetButton');
+            const clinicsList = document.getElementById('clinicsList');
+            const patientInfoContent = document.getElementById('patientInfoContent');
+            const transportationInfoContent = document.getElementById('transportationInfoContent');
+            const socioeconomicText = document.getElementById('socioeconomicText');
+            const socioeconomicList = document.getElementById('socioeconomicList');
+            const clinicInfoCol = document.getElementById('clinicInfoCol');
+            const mapCol = document.getElementById('mapCol');
+            const dataInfoCol = document.getElementById('dataInfoCol');
+            const messageBox = document.getElementById('messageBox');
+            const messageText = document.getElementById('messageText');
+            const closeMessageButton = document.getElementById('closeMessage');
+            const suggestionsContainer = document.getElementById('suggestionsContainer');
+            const resultsMapContainer = document.getElementById('resultsMapContainer');
+
+            let isFinding = false;
+            let polygonData = null; // Stores socioeconomic GeoJSON data
+            
+            // **START: ALL TRANSPORTATION POLYGON DATA VARIABLES (24 TOTAL)**
+            // 1. Existing Hfx Transit Data Load
+            let hfxTransitData = null; 
+            // 2-13. Turn 2 additions
+            let antigonishTransitData = null; 
+            let bayRidesData = null; 
+            let chadTransitData = null; 
+            let chesterWheelsData = null; 
+            let colchesterTransitData = null; 
+            let cumberlandTransitData = null; 
+            let eastHantsRiderData = null; 
+            let eskasoniTransitData = null; 
+            let hopeDialARideData = null; 
+            let kingsPointToPointData = null; 
+            let lacabieTransportData = null; 
+            let lunenburgWheelsData = null; 
+            // 14-24. Current additions (11)
+            let musGoRiderEasternShoreData = null;
+            let musGoRiderSheetHarbourData = null;
+            let queensCountyTransitData = null;
+            let smartGoData = null;
+            let souWestNovaData = null;
+            let straitAreaTransitData = null;
+            let transCountyData = null;
+            let guysboroughTransitData = null;
+            let transportDeClareData = null;
+            let victoriaCountyTransitData = null;
+            let westHantsDialARideData = null;
+
+            
+            // Helper object to map data variables to keys for easier iteration
+            // Link values are placeholders as requested ("just have the info pop up be a placeholder")
+            const transitServicesMap = {
+                'hfx': { 
+                    data: () => hfxTransitData, 
+                    name: 'Halifax Transit', 
+                    file: 'HfxTransitStop1kmBuffer_4326.json', 
+                    link: 'https://www.halifax.ca/transportation/halifax-transit/routes-schedules', 
+                    placeholder: 'Halifax Transit',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for Halifax Transit **
+                    customMessage: `<b>Halifax Transit</b><br>
+                        Call 311 or check out the website (https://www.halifax.ca/transportation/halifax-transit/routes-schedules) for more information about fares, routes, and schedules.`
+                },
+                'antigonish': { 
+                    data: () => antigonishTransitData, 
+                    name: 'Antigonish Community Transit', 
+                    file: 'AntigonishCommunityTransitSociety_4326.json', 
+                    link: 'https://placeholder.com/antigonish', 
+                    placeholder: 'Antigonish Community Transit Society',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for Antigonish Community Transit Society **
+                    customMessage: `<b>Antigonish Community Transit Society</b><br>
+                         Call 902-867-0411 or email ACTS.dispatcher@gmail.com to learn about rates and book a ride. To book a ride with the door-to-door service, please call by 1:00 p.m. at least one day before you wish to ride. For more information, check out the website (https://antigonishcts.ruralrides.ca/our-services/#how-to-book).`
+                },
+                'bayrides': { 
+                    data: () => bayRidesData, 
+                    name: 'Bay Rides', 
+                    file: 'BayRides_4326.json', 
+                    link: 'https://placeholder.com/bayrides', 
+                    placeholder: 'Bay Rides',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for Bay Rides **
+                    customMessage: `<b>BayRides</b><br> 
+                        Call 902-820-6600 or email dispatch@bayrides.ca to learn about rates and book a ride. Hours of operation are Monday–Friday, 6:00 a.m. to 6:00 p.m. Please book at least 48 hours in advance. For more information, check out the website (https://bayrides.ruralrides.ca/our-services/) or Facebook page (https://www.facebook.com/bayrides/).`
+                },
+                'chad': { 
+                    data: () => chadTransitData, 
+                    name: 'CHAD Transit', 
+                    file: 'CHADTransit_4326.json', 
+                    link: 'https://placeholder.com/chad', 
+                    placeholder: 'CHAD Transit',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for CHAD Transit **
+                    customMessage: `<b>CHAD Transit</b><br>
+                        Call 902-928-1234 or check out the website (https://chadtransit.ruralrides.ca/our-services/) to learn about rates and book a ride. Dispatch hours are Monday–Friday, 8:00 a.m. to 4:00 p.m. All drives must be booked by 12:00 p.m. the previous day. For more information, check out the Facebook page (https://www.facebook.com/ChadTransit/).`
+                },
+                'chester': { 
+                    data: () => chesterWheelsData, 
+                    name: 'Chester Community Wheels', 
+                    file: 'ChesterCommunityWheels_4326.json', 
+                    link: 'https://placeholder.com/chester', 
+                    placeholder: 'Chester Community Wheels',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for Chester Community Wheels **
+                    customMessage: `<b>Chester Community Wheels</b><br>
+                        Call 902-273-2440 or email info@communitywheels.ca to learn about rates and book a ride. When booking, please be sure to leave your name, the name of the person who the booking is for (if different), and a phone number where you can be reached. Note: An email booking has not been confirmed until you get a reply email or phone call from Chester Community Wheels. For more information, check out the website (https://communitywheels.ruralrides.ca/our-services/#how-to-book) or Facebook page (https://www.facebook.com/chestercommunitywheels/).`
+                },
+                'colchester': { 
+                    data: () => colchesterTransitData, 
+                    name: 'Colchester Transport', 
+                    file: 'ColchesterTransportationCooperativeLimited_4326.json', 
+                    link: 'https://placeholder.com/colchester', 
+                    placeholder: 'Colchester Transportation Cooperative Limited',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for Colchester Transportation Cooperative Limited **
+                    customMessage: `<br>Colchester Transportation Cooperative Limited</b><br>
+                        Call 902-896-7433 or email ctcl@colchestertransportation.ca to learn about rates and book a ride. The office is open Monday–Friday, from 8:30 a.m. to 4:00 p.m. Bookings must be received before 1:00 p.m. for next-day service. The Dial-A-Ride service operates Monday–Friday, 5:30 a.m. to 5:00 p.m. For more information, check out the website (https://ctcl.ruralrides.ca/our-services/), Facebook page (https://www.facebook.com/CTCL2015/), or email edctcl@colchestertransportation.ca.`
+                },
+                'cumberland': { 
+                    data: () => cumberlandTransitData, 
+                    name: 'Cumberland Transport', 
+                    file: 'CumberlandCountyTransportationServices_4326.json', 
+                    link: 'https://placeholder.com/cumberland', 
+                    placeholder: 'Cumberland County Transportation Services',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for Cumberland County Transportation Services **
+                    customMessage: `<b>Cumberland County Transportation Services</b><br>
+                        Call 902-667-8149 or email cctsdispatch@gmail.com to learn about rates and book a ride. Rides must be pre-booked with a minimum of 24 hours' notice. Availability is first-come, first-served, with priority given to medical appointments and clients using wheelchairs. CCTS operates Monday to Saturday and on Sundays as required. For more information, check out the website (https://cctscumberland.ruralrides.ca/our-services/) or Facebook page (https://www.facebook.com/CCTS-Cumberland-County-Transportation-Service-173142276133429/).`
+                },
+                'easthants': { 
+                    data: () => eastHantsRiderData, 
+                    name: 'East Hants Rider', 
+                    file: 'EastHantsandAreaCommunityRider_4326.json', 
+                    link: 'https://placeholder.com/easthants', 
+                    placeholder: 'East Hants & Area Community Rider',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for East Hants & Area Community Rider **
+                    customMessage: `<b>East Hants & Area Community Rider</b><br<
+                        Call 902-883-4716 or email dispatch@communityrider.com to learn about rates and book a ride. Please book your ride at least 24 hours in advance. This service is first-come, first-served. For more information, check out the website (https://communityrider.ruralrides.ca/our-services/) or Facebook page (https://www.facebook.com/EastHantsCommunityLearningandRider/).`
+                },
+                'eskasoni': { 
+                    data: () => eskasoniTransitData, 
+                    name: 'Eskasoni Transit', 
+                    file: 'EskasoniTransitService_4326.json', 
+                    link: 'https://placeholder.com/eskasoni', 
+                    placeholder: 'Eskasoni Transit Service',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for Eskasoni Transit Service **
+                    customMessage: `<b>Eskasoni Transit Service</b><br>
+                        Call 902-379-3488 or email transit@eskasoni.ca to learn about rates and book a ride. All rides must be booked 24 hours ahead. You can book a ride up to two weeks in advance. Please call by 2:30 p.m. at least one day before you wish to use the service for a ride. Booking hours are Monday–Friday, 9:00 a.m. to 2:30 p.m. For more information, check out the website (https://eskasoni.ruralrides.ca/our-services/) or Facebook page (https://www.facebook.com/Eskasoni-Transit-Service-106729845188044/).`
+                },
+                'hope': { 
+                    data: () => hopeDialARideData, 
+                    name: 'HOPE Dial-a-Ride', 
+                    file: 'HOPEDialARide_4326.json', 
+                    link: 'https://placeholder.com/hope', 
+                    placeholder: 'HOPE Dial-a-Ride',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for HOPE Dial-a-Ride **
+                    customMessage: `<b>HOPE Dial-a-Ride</b><br>
+                        Call 902-742-6579 or email hopecentre@eastlink.ca to learn about rates and book a ride. Dispatch hours are Monday–Friday, 8:30 a.m. to 4:30 p.m. Please book at least 24 hours in advance. Note: An email booking has not been confirmed until you get a reply email or phone call from HOPE Dial-a-Ride. For more information, check out the website (https://gohope.ruralrides.ca/our-services/) or Facebook page (https://www.facebook.com/HOPECentreanddialaride/).`
+                },
+                'kings': { 
+                    data: () => kingsPointToPointData, 
+                    name: 'Kings Point-to-Point', 
+                    file: 'KingsPointtoPoint_4326.json', 
+                    link: 'https://placeholder.com/kings', 
+                    placeholder: 'Kings Point-to-Point',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for Kings Point-to-Point **
+                    customMessage: `<b>Kings Point-to-Point</b><br>
+                        Call 902-681-2846 (Option #1 Bookings) to learn about rates and book a ride. Dispatch hours are Monday–Friday, 9:00 a.m. to 4:00 p.m. All trips must be booked more than 2–3 business days in advance. For more information, check out the website (https://kppt.ruralrides.ca/our-services/) or Facebook page (https://www.facebook.com/RideKPPT/).`
+                },
+                'lacabie': { 
+                    data: () => lacabieTransportData, 
+                    name: 'LAcabie Transport', 
+                    file: 'LAcabieTransport_4326.json', 
+                    link: 'https://placeholder.com/lacabie', 
+                    placeholder: 'L’Acabie Transport',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for L’Acabie Transport **
+                    customMessage: `<b>L’Acabie Transport</b><br>
+                        Call 902-224-5069 or email lacabiecheticamp@gmail.com to learn about rates and book a ride. Note: An email booking has not been confirmed until you get a reply email or phone call from L’Acabie Transport. For more information, check out the website (https://lacabietransport.ruralrides.ca/our-services/) or Facebook page (https://www.facebook.com/lacabietransport).`
+                },
+                'lunenburg': { 
+                    data: () => lunenburgWheelsData, 
+                    name: 'Lunenburg County Wheels', 
+                    file: 'LunenburgCountyWheels_4326.json', 
+                    link: 'https://placeholder.com/lunenburg', 
+                    placeholder: 'Lunenburg County Wheels',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for Lunenburg County Wheels **
+                    customMessage: `<b>Lunenburg County Wheels</b><br>
+                        Call 902-523-4455 to learn about rates and book a ride. Dispatch hours are Monday–Friday, 8:30 a.m. to 4:00 p.m. All trips must be booked more than 3 business days in advance. For more information, check out the website (https://lcwheels.ca/book-a-ride/).`
+                },
+                'musgoeastern': { 
+                    data: () => musGoRiderEasternShoreData, 
+                    name: 'MusGo Eastern Shore', 
+                    file: 'MusGoRiderEasternShoreDistrict_4326.json', 
+                    link: 'https://placeholder.com/musgoeastern', 
+                    placeholder: 'MusGo Rider (Eastern Shore District)',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for MusGo Rider (Eastern Shore District) **
+                    customMessage: `<b>MusGo Rider – Eastern Shore District</b><br>
+                        Call 902-483-7433 or email musgorider@gmail.com to book a ride. Service hours are Monday to Friday, 7:00 a.m. to 6:00 p.m., and Saturday from 10:00 a.m. to 6:00 p.m. Ensure to book your ride at least one day in advance. For additional information on rates and services, check out the website (https://musgorider.ruralrides.ca/find-a-ride/) or Facebook page (https://www.facebook.com/ruraltransportation/).`
+                },
+                'musgosheetharbour': { 
+                    data: () => musGoRiderSheetHarbourData, 
+                    name: 'MusGo Sheet Harbour', 
+                    file: 'MusGoRiderSheetHarbour_4326.json', 
+                    link: 'https://placeholder.com/musgosheetharbour', 
+                    placeholder: 'MusGo Rider (Sheet Harbour)',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for MusGo Rider (Sheet Harbour) **
+                    customMessage: `<b>MusGo Rider – Sheet Harbour District</b><br>
+                        Call 902-483-7433 or email musgorider@gmail.com to book a ride. Service hours are Monday to Friday, 7:00 a.m. to 6:00 p.m., and Saturday from 10:00 a.m. to 6:00 p.m. Ensure to book your ride at least one day in advance. For additional information on rates and services, check out the website (https://musgorider.ruralrides.ca/find-a-ride/) or Facebook page (https://www.facebook.com/ruraltransportation/).`
+                },
+                'queenscounty': { 
+                    data: () => queensCountyTransitData, 
+                    name: 'Queens County Transit', 
+                    file: 'QueensCountyTransit_4326.json', 
+                    link: 'https://placeholder.com/queenscounty', 
+                    placeholder: 'Queens County Transit',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for Queens County Transit **
+                    customMessage: `<b>Queens County Transit</b><br>
+                        Call 902-356-2670 or message (https://www.facebook.com/queenscountytransit/) to learn about rates and book a ride. For more information, check out the website (https://qct.ruralrides.ca/our-services/) or Facebook page (https://www.facebook.com/queenscountytransit/).`
+                },
+                'smartgo': { 
+                    data: () => smartGoData, 
+                    name: 'SMARTGO', 
+                    file: 'SMARTGO_4326.json', 
+                    link: 'https://placeholder.com/smartgo', 
+                    placeholder: 'SMARTGO',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for SMARTGO **
+                    customMessage: `<b>SMART-GO</b><br>
+                        Call 902-522-2000 or email ride@smartgo.ca to learn about rates and book a ride. Dispatch hours are Monday–Friday, 10:00 a.m. to 3:00 p.m. When booking, please be sure to leave your name, the name of the person who the booking is for (if different), and a phone number where you can be reached. Note: An email booking has not been confirmed until you get a reply email or phone call from SMART-GO. For more information, check out the website (https://smartgo.ruralrides.ca/our-services/) or Facebook page (https://www.facebook.com/profile.php?id=100090979472259).`
+                },
+                'souwestnova': { 
+                    data: () => souWestNovaData, 
+                    name: 'SouWest Nova Transit', 
+                    file: 'SouWestNovaTransitAssociation_4326.json', 
+                    link: 'https://placeholder.com/souwestnova', 
+                    placeholder: 'SouWest Nova Transit Association',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for SouWest Nova Transit Association **
+                    customMessage: `<b>Sou’West Nova Transit Association</b><br>
+                        Call 902-637-2572 (toll-free 844-637-2572) or email dispatch@souwestnovatransit.ca to learn about rates and book a ride. All non-flexible trips should be booked by noon at least two business days before travel, and it is recommended to contact as far in advance as possible to ensure your request can be accommodated. Note: An email booking has not been confirmed until you get a reply email or phone call from Sou’West Nova Transit Association. For more information, check out the website (https://souwestnovatransit.ruralrides.ca/our-services/) or Facebook page (https://www.facebook.com/souwestnovatransit/).`
+                },
+                'straitarea': { 
+                    data: () => straitAreaTransitData, 
+                    name: 'Strait Area Transit', 
+                    file: 'StraitAreaTransitCooperative_4326.json', 
+                    link: 'https://placeholder.com/straitarea', 
+                    placeholder: 'Strait Area Transit Cooperative',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for Strait Area Transit Cooperative **
+                    customMessage: `<b>Strait Area Transit Cooperative</b><br>
+                        Call 902-625-1475, email dispatcher@satbus.ca, or check out the website (https://www.satbus.ca/book-here) to learn about rates and book a ride. Dispatch hours are Monday–Friday, 8:30 a.m. to 3:00 p.m.`
+                },
+                'transcounty': { 
+                    data: () => transCountyData, 
+                    name: 'TransCounty Transport', 
+                    file: 'TransCountyTransportationSociety_4326.json', 
+                    link: 'https://placeholder.com/transcounty', 
+                    placeholder: 'Trans County Transportation Society',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for Trans County Transportation Society **
+                    customMessage: `<b>Trans County Transportation Authority</b><br>
+                        Call 902-665-1212 or check out the website (https://tcts.ruralrides.ca/our-services/#services-offered) to learn about rates and book a ride. Booking hours are Monday–Friday, 8:30 a.m. to 12:00 p.m. The office is closed on weekends and holidays. For more information, check out the Facebook page`
+                },
+                'guysborough': { 
+                    data: () => guysboroughTransitData, 
+                    name: 'Guysborough Transit', 
+                    file: 'TransitAssociationofGuysborough_4326.json', 
+                    link: 'https://placeholder.com/guysborough', 
+                    placeholder: 'Transit Association of Guysborough',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for Transit Association of Guysborough **
+                    customMessage: `<b>Transit Association of Guysborough</b><br>
+                        Call 902-338-0959 or email guysboroughtransit@gmail.com to learn about rates and book a ride. Dispatch hours are Monday–Friday, 9:00 a.m. to 1:00 p.m. Please remember to call at least 24 hours in advance of your required pick-up date and time. For more information, check out the website (https://guysborough.ruralrides.ca/our-services/) or Facebook page (https://www.facebook.com/guysbroughtransit.ruralrides).`
+                },
+                'transportdeclare': { 
+                    data: () => transportDeClareData, 
+                    name: 'Transport de Clare', 
+                    file: 'TransportdeClareSociety_4326.json', 
+                    link: 'https://placeholder.com/transportdeclare', 
+                    placeholder: 'Transport de Clare Society',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for Transport de Clare Society **
+                    customMessage: `<b>Transport de Clare Society</b><br>
+                        Call 902-769-2477 or email dispatch@transportdeclare.ca to learn about rates and book a ride. For more information, check out the website (https://transportdeclare.ca/).`
+                },
+                'victoria': { 
+                    data: () => victoriaCountyTransitData, 
+                    name: 'Victoria County Transit', 
+                    file: 'VictoriaCountyTransit_4326.json', 
+                    link: 'https://placeholder.com/victoria', 
+                    placeholder: 'Victoria County Transit',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for Victoria County Transit **
+                    customMessage: `<b>Victoria County Transit</b><br>
+                        Call 1-855-772-0770 to learn about rates and book a ride. Dispatch hours are Monday–Friday, 8:30 a.m. to 2:30 p.m. If leaving a message, include your name, phone number, date, your destination, time of day you called, number of passengers, and any special ride requirements you need. Note: A booking has not been confirmed until you have spoken to a dispatcher. For more information, check out the website (https://www.vctbus.ca/).`
+                },
+                'westhants': { 
+                    data: () => westHantsDialARideData, 
+                    name: 'West Hants Dial-A-Ride', 
+                    file: 'WestHantsDialARide_4326.json', 
+                    link: 'https://placeholder.com/westhants', 
+                    placeholder: 'West Hants Dial-A-Ride',
+                    // ** PASTE CUSTOM INSTRUCTIONS HERE for West Hants Dial-A-Ride **
+                    customMessage: `<b>West Hants Dial-A-Ride</b><br>
+                        Call 902-792-1800 or email westhantsdialaride@gmail.com to learn about rates and book a ride. Dispatch hours are Monday–Friday, 9:00 a.m. to 4:00 p.m. Please book at least 24 hours in advance. Note: An email booking has not been confirmed until you get a reply email or phone call from West Hants Dial-A-Ride. For more information, check out the website (https://westhantsdar.ruralrides.ca/our-services/) or Facebook page (https://www.facebook.com/westhantsdar).`
+                }
+            };
+            // **END: ALL TRANSPORTATION POLYGON DATA VARIABLES**
+            
+            let userCoordinates = null;
+            let map;
+
+            // Define custom marker icons
+            const userIcon = L.icon({
+                iconUrl: 'https://cdn.rawgit.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-black.png',
+                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                iconSize: [25, 41],
+                iconAnchor: [12, 41],
+                popupAnchor: [1, -34],
+                shadowSize: [41, 41]
+            });
+
+            const clinicIconRed = L.icon({
+                iconUrl: 'https://cdn.rawgit.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                iconSize: [25, 41],
+                iconAnchor: [12, 41],
+                popupAnchor: [1, -34],
+                shadowSize: [41, 41]
+            });
+            
+            // Utility functions
+            function showMessage(message) {
+                messageText.textContent = message;
+                messageBox.classList.remove('hidden');
+            }
+
+            closeMessageButton.addEventListener('click', () => {
+                messageBox.classList.add('hidden');
+            });
+
+            function debounce(func, delay) {
+                let timeout;
+                return function(...args) {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => func.apply(this, args), delay);
+                };
+            }
+
+            // Autocomplete logic
+            async function fetchSuggestions() {
+                const query = addressInput.value.trim();
+
+                if (query.length < 3 || isFinding) {
+                    suggestionsContainer.innerHTML = '';
+                    suggestionsContainer.classList.add('hidden');
+                    return;
+                }
+
+                suggestionsContainer.innerHTML = `<div class="p-3 text-gray-500">Loading...</div>`;
+                suggestionsContainer.classList.remove('hidden');
+
+                try {
+                    const geocodeUrl = `https://geocode.maps.co/search?q=${encodeURIComponent(query)}&country=ca&state=Nova+Scotia&api_key=688fc7ef3880f671370341oxl53f970`;
+                    const response = await fetch(geocodeUrl);
+                    
+                    if (!response.ok) {
+                        const errorData = await response.text();
+                        console.error("Geocoding API Error:", response.status, errorData);
+                        suggestionsContainer.innerHTML = `<div class="p-3 text-gray-700">Error fetching suggestions.</div>`;
+                        return;
+                    }
+
+                    const data = await response.json();
+                    suggestionsContainer.innerHTML = '';
+
+                    if (data.length > 0) {
+                        data.forEach(item => {
+                            const suggestionItem = document.createElement('div');
+                            suggestionItem.textContent = item.display_name;
+                            suggestionItem.classList.add('p-3', 'cursor-pointer', 'hover:bg-gray-200', 'border-b', 'border-gray-200');
+                            suggestionItem.addEventListener('click', () => {
+                                addressInput.value = item.display_name;
+                                suggestionsContainer.classList.add('hidden');
+                            });
+                            suggestionsContainer.appendChild(suggestionItem);
+                        });
+                    } else {
+                        suggestionsContainer.innerHTML = `<div class="p-3 text-gray-500">No suggestions found.</div>`;
+                    }
+                } catch (error) {
+                    console.error("Error fetching suggestions:", error);
+                    showMessage("An error occurred during autocomplete. Please try again.");
+                    suggestionsContainer.innerHTML = '';
+                }
+            }
+
+            const debouncedFetchSuggestions = debounce(fetchSuggestions, 300);
+            addressInput.addEventListener('input', debouncedFetchSuggestions);
+
+            document.addEventListener('click', (event) => {
+                if (!suggestionsContainer.contains(event.target) && event.target !== addressInput) {
+                    suggestionsContainer.classList.add('hidden');
+                }
+            });
+
+            // Geographic analysis functions (Crucial for polygon checks)
+            function isPointInSinglePolygon(point, coordinates) {
+                const x = point[0];
+                const y = point[1];
+                let inside = false;
+                for (let i = 0, j = coordinates.length - 1; i < coordinates.length; j = i++) {
+                    const xi = coordinates[i][0];
+                    const yi = coordinates[i][1];
+                    const xj = coordinates[j][0];
+                    const yj = coordinates[j][1];
+                    const intersect = ((yi > y) != (yj > y)) &&
+                        (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+                    if (intersect) {
+                        inside = !inside;
+                    }
+                }
+                return inside;
+            }
+
+            function isPointInFeature(point, feature) {
+                if (!feature || !feature.geometry || !feature.geometry.coordinates) {
+                    // console.error("Invalid GeoJSON feature:", feature);
+                    return false;
+                }
+                const geometryType = feature.geometry.type;
+                const coordinates = feature.geometry.coordinates;
+
+                if (geometryType === 'Polygon') {
+                    return isPointInSinglePolygon(point, coordinates[0]);
+                } else if (geometryType === 'MultiPolygon') {
+                    for (const polygon of coordinates) {
+                        if (isPointInSinglePolygon(point, polygon[0])) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+                // console.warn("Unsupported geometry type:", geometryType);
+                return false;
+            }
+            
+            // Map handling
+            function clearMapMarkers() {
+                if (map) {
+                    map.eachLayer(layer => {
+                        if (layer instanceof L.Marker) {
+                            map.removeLayer(layer);
+                        }
+                    });
+                }
+            }
+
+            function initializeMap() {
+                // Remove existing map if it exists
+                if (map) {
+                    map.remove();
+                }
+                
+                // Create a new map instance
+                map = L.map('map');
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                }).addTo(map);
+            }
+
+            // Main search function
+            async function findNearestHospital() {
+                const userAddress = addressInput.value.trim();
+                suggestionsContainer.classList.add('hidden');
+
+                if (isFinding) {
+                    return;
+                }
+                
+                if (!userAddress) {
+                    showMessage("Please enter a valid address.");
+                    return;
+                }
+
+                isFinding = true;
+                findButton.disabled = true;
+                findButton.textContent = "Finding...";
+
+                resultsMapContainer.classList.remove('hidden');
+
+                clinicsList.innerHTML = `
+                    <div class="text-center text-gray-500">
+                        <svg class="animate-spin h-8 w-8 text-gray-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <p class="mt-2">Finding the nearest clinic...</p>
+                    </div>
+                `;
+                
+                initializeMap();
+
+                try {
+                    // Geocoding step
+                    const geocodeUrl = `https://geocode.maps.co/search?q=${encodeURIComponent(userAddress)}&country=ca&state=Nova+Scotia&api_key=688fc7ef3880f671370341oxl53f970`;
+                    console.log("Attempting to geocode address:", userAddress);
+
+                    const response = await fetch(geocodeUrl);
+
+                    if (!response.ok) {
+                        const errorData = await response.text();
+                        console.error("Geocoding API Error:", response.status, errorData);
+                        showMessage(`Error from geocoding service: ${response.status} - ${response.statusText}. Please check the API key or try again later.`);
+                        clinicsList.innerHTML = '';
+                        return;
+                    }
+                    
+                    const data = await response.json();
+                    console.log("Geocoding API response data:", data);
+
+                    if (data.length === 0) {
+                        showMessage("Address not found in Nova Scotia. Please try again with a more specific address.");
+                        clinicsList.innerHTML = '';
+                        return;
+                    }
+
+                    userCoordinates = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+                    const userPoint = [userCoordinates.lng, userCoordinates.lat];
+                    
+                    // **START: CHECK FOR USER TRANSIT ACCESS (ALL 24 SERVICES)**
+                    let userTransitServices = {};
+                    
+                    // Iterate through all defined transit services to check if the user is covered
+                    for (const key in transitServicesMap) {
+                        let isCovered = false;
+                        const service = transitServicesMap[key];
+                        const serviceData = service.data();
+                        
+                        if (serviceData) {
+                            for (const feature of serviceData.features) {
+                                if (isPointInFeature(userPoint, feature)) {
+                                    isCovered = true;
+                                    break;
+                                }
+                            }
+                        }
+                        userTransitServices[key] = isCovered;
+                    }
+                    // **END: CHECK FOR USER TRANSIT ACCESS**
+
+                    // Retrieve socioeconomic data
+                    let comeData = {
+                        INCavg: "N/A",
+                        MSPC1Q: "N/A",
+                        SCRC1Q: "N/A",
+                        SDRC2Q: "N/A"
+                    };
+
+                    if (polygonData) {
+                        // The userPoint is already defined above
+                        for (const feature of polygonData.features) {
+                            if (isPointInFeature(userPoint, feature)) {
+                                comeData.INCavg = feature.properties.INCavg || "N/A";
+                                comeData.MSPC1Q = feature.properties.MSPC1Q || "N/A";
+                                comeData.SCRC1Q = feature.properties.SCRC1Q || "N/A";
+                                comeData.SDRC2Q = feature.properties.SDRC2Q || "N/A";
+                                break;
+                            }
+                        }
+                    }
+
+                    // OSRM API call for driving distances
+                    const startCoordString = `${userCoordinates.lng},${userCoordinates.lat}`;
+                    const destinationCoordString = hospitals.map(h => `${h.lng},${h.lat}`).join(';');
+                    const osrmUrl = `https://router.project-osrm.org/table/v1/driving/${startCoordString};${destinationCoordString}?annotations=distance,duration`;
+                    console.log("OSRM API URL:", osrmUrl);
+                    
+                    const osrmResponse = await fetch(osrmUrl);
+                    const osrmData = await osrmResponse.json();
+                    console.log("OSRM API response:", osrmData);
+
+                    if (osrmData.code !== 'Ok' || !osrmData.distances || osrmData.distances.length === 0) {
+                        showMessage("Could not calculate driving distances. Please try again.");
+                        clinicsList.innerHTML = '';
+                        return;
+                    }
+                    
+                    const distances = osrmData.distances[0];
+                    const durations = osrmData.durations[0];
+
+                    const results = hospitals.map((hospital, index) => {
+                        return {
+                            ...hospital,
+                            distance: distances[index + 1],
+                            duration: durations[index + 1]
+                        };
+                    });
+
+                    results.sort((a, b) => a.distance - b.distance);
+                    const top3Hospitals = results.slice(0, 3);
+                    
+                    if (top3Hospitals.length > 0) {
+                        clinicInfoCol.classList.remove('hidden');
+                        dataInfoCol.classList.remove('hidden');
+                        mapCol.classList.add('md:w-1/2');
+                        mapCol.classList.remove('md:w-full');
+                        
+                        // Dynamically generate the list of clinics
+                        let clinicsHtml = top3Hospitals.map((hospital, index) => {
+                            const rank = index + 1;
+                            const distanceKm = (hospital.distance / 1000).toFixed(2);
+                            const drivingTimeMinutes = Math.round(hospital.duration / 60);
+                            const minDrivingTime = Math.round(drivingTimeMinutes * 0.85);
+                            const maxDrivingTime = Math.round(drivingTimeMinutes * 1.15);
+                            const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${userCoordinates.lat},${userCoordinates.lng}&destination=${encodeURIComponent(hospital.address)}`;
+
+                            // Pass the entire userTransitServices object as a JSON string
+                            const userTransitServicesString = JSON.stringify(userTransitServices);
+
+                            return `
+                                <div class="clinic-item mb-6 pb-6 p-2 rounded-xl transition-colors duration-200" data-lat="${hospital.lat}" data-lng="${hospital.lng}">
+                                    <h4 class="text-xl font-semibold mb-2 text-gray-800">${rank}. ${hospital.name}</h4>
+                                    <p class="text-gray-700">${hospital.address}</p>
+                                    <p class="text-gray-700 mt-2">Distance: <span class="font-bold">${distanceKm} km</span></p>
+                                    <p class="text-gray-700">Predicted Driving Time: <span class="font-bold">${minDrivingTime} - ${maxDrivingTime} mins</span></p>
+                                    <a href="${googleMapsUrl}" target="_blank" class="mt-4 inline-block text-white font-semibold py-2 px-4 rounded-xl shadow-md transition-all duration-300" style="background-color: #475979; hover:background-color: #80aac6;">
+                                         Get Directions
+                                     </a>
+                                    <button class="select-clinic-button mt-4 ml-2 inline-block text-white font-semibold py-2 px-4 rounded-xl shadow-md transition-all duration-300 transform hover:scale-105" style="background-color: #475979;" data-location-name="${hospital.name}" data-user-transit-services='${userTransitServicesString}'>Select this Clinic</button>
+                                </div>
+                            `;
+                        }).join('');
+
+                        clinicsList.innerHTML = clinicsHtml;
+                        socioeconomicText.textContent = `This individual lives in a community environ with an average individual income of $${comeData.INCavg} (NS Average 2021 $45640). In this area, the socioeconomic status scores are as follows:`;
+                        socioeconomicList.innerHTML = `
+                            <li>Material Security: <span class="font-bold">${comeData.MSPC1Q} (${scoreMap[comeData.MSPC1Q]})</span></li>
+                            <li>Social Connectivity: <span class="font-bold">${comeData.SCRC1Q} (${scoreMap[comeData.SCRC1Q]})</span></li>
+                            <li>Social Diversity: <span class="font-bold">${comeData.SDRC2Q} (${scoreMap[comeData.SDRC2Q]})</span></li>
+                        `;
+                        socioeconomicList.classList.remove('hidden');
+
+                        clearMapMarkers();
+
+                        const userMarker = L.marker([userCoordinates.lat, userCoordinates.lng], { icon: userIcon }).addTo(map)
+                            .bindPopup(`<b>Individual's Location</b><br>${userAddress}`).openPopup();
+                        
+                        const markersToFit = [userMarker];
+
+                        top3Hospitals.forEach((hospital, index) => {
+                            const marker = L.marker([hospital.lat, hospital.lng], {
+                                icon: clinicIconRed
+                            }).addTo(map)
+                            .bindPopup(`<b>${index + 1}. ${hospital.name}</b><br>${hospital.address}`);
+                            markersToFit.push(marker);
+                        });
+                        
+                        const group = new L.featureGroup(markersToFit);
+                        map.fitBounds(group.getBounds().pad(0.2));
+                        
+                        map.invalidateSize();
+
+                    } else {
+                        showMessage("Could not find a clinic. Please try again.");
+                    }
+
+                } catch (error) {
+                    console.error("Error finding nearest clinic:", error);
+                    showMessage("An error occurred. Please check your address and try again.");
+                    clinicsList.innerHTML = '';
+                } finally {
+                    isFinding = false;
+                    findButton.disabled = false;
+                    findButton.textContent = "Find Nearest Clinic";
+                }
+            }
+
+            // **START: ALL 24 DATA LOADING FUNCTIONS**
+
+            // Data loading (async)
+            async function loadPolygonData() {
+                try {
+                    const response = await fetch('COMeBoundaries_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load COMeBoundaries.json: ${response.status} ${response.statusText}`);
+                    }
+                    polygonData = await response.json();
+                    console.log("Socioeconomic data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                    showMessage("Could not load socioeconomic data. The socioeconomic data feature will not work.");
+                }
+            }
+
+            // 1. Halifax Transit
+            async function loadHfxTransitData() {
+                try {
+                    const response = await fetch('HfxTransitStop1kmBuffer_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load HfxTransitStop1kmBuffer_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    hfxTransitData = await response.json();
+                    console.log("Hfx Transit data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+            
+            // 2. Antigonish Community Transit
+            async function loadAntigonishTransitData() {
+                try {
+                    const response = await fetch('AntigonishCommunityTransitSociety_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load AntigonishCommunityTransitSociety_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    antigonishTransitData = await response.json();
+                    console.log("Antigonish Transit data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 3. BayRides
+            async function loadBayRidesData() {
+                try {
+                    const response = await fetch('BayRides_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load BayRides_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    bayRidesData = await response.json();
+                    console.log("BayRides data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 4. CHAD Transit
+            async function loadCHADTransitData() {
+                try {
+                    const response = await fetch('CHADTransit_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load CHADTransit_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    chadTransitData = await response.json();
+                    console.log("CHAD Transit data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 5. Chester Community Wheels
+            async function loadChesterWheelsData() {
+                try {
+                    const response = await fetch('ChesterCommunityWheels_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load ChesterCommunityWheels_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    chesterWheelsData = await response.json();
+                    console.log("Chester Wheels data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 6. Colchester Transportation Cooperative Limited
+            async function loadColchesterTransitData() {
+                try {
+                    const response = await fetch('ColchesterTransportationCooperativeLimited_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load ColchesterTransportationCooperativeLimited_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    colchesterTransitData = await response.json();
+                    console.log("Colchester Transit data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 7. Cumberland County Transportation Services
+            async function loadCumberlandTransitData() {
+                try {
+                    const response = await fetch('CumberlandCountyTransportationServices_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load CumberlandCountyTransportationServices_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    cumberlandTransitData = await response.json();
+                    console.log("Cumberland Transit data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 8. East Hants & Area Community Rider
+            async function loadEastHantsRiderData() {
+                try {
+                    const response = await fetch('EastHantsandAreaCommunityRider_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load EastHantsandAreaCommunityRider_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    eastHantsRiderData = await response.json();
+                    console.log("East Hants Rider data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 9. Eskasoni Transit Service
+            async function loadEskasoniTransitData() {
+                try {
+                    const response = await fetch('EskasoniTransitService_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load EskasoniTransitService_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    eskasoniTransitData = await response.json();
+                    console.log("Eskasoni Transit data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+            
+            // 10. HOPE Dial-a-Ride
+            async function loadHOPEDialARideData() {
+                try {
+                    const response = await fetch('HOPEDialARide_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load HOPEDialARide_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    hopeDialARideData = await response.json();
+                    console.log("HOPE Dial-a-Ride data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 11. Kings Point-to-Point
+            async function loadKingsPointToPointData() {
+                try {
+                    const response = await fetch('KingsPointtoPoint_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load KingsPointtoPoint_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    kingsPointToPointData = await response.json();
+                    console.log("Kings Point-to-Point data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 12. L’Acabie Transport
+            async function loadLAcabieTransportData() {
+                try {
+                    const response = await fetch('LAcabieTransport_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load LAcabieTransport_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    lacabieTransportData = await response.json();
+                    console.log("LAcabie Transport data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 13. Lunenburg County Wheels
+            async function loadLunenburgWheelsData() {
+                try {
+                    const response = await fetch('LunenburgCountyWheels_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load LunenburgCountyWheels_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    lunenburgWheelsData = await response.json();
+                    console.log("Lunenburg County Wheels data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+            
+            // 14. MusGoRider Eastern Shore District (NEW)
+            async function loadMusGoRiderEasternShoreData() {
+                try {
+                    const response = await fetch('MusGoRiderEasternShoreDistrict_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load MusGoRiderEasternShoreDistrict_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    musGoRiderEasternShoreData = await response.json();
+                    console.log("MusGoRider Eastern Shore data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 15. MusGoRider Sheet Harbour (NEW)
+            async function loadMusGoRiderSheetHarbourData() {
+                try {
+                    const response = await fetch('MusGoRiderSheetHarbour_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load MusGoRiderSheetHarbour_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    musGoRiderSheetHarbourData = await response.json();
+                    console.log("MusGoRider Sheet Harbour data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+            
+            // 16. Queens County Transit (NEW)
+            async function loadQueensCountyTransitData() {
+                try {
+                    const response = await fetch('QueensCountyTransit_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load QueensCountyTransit_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    queensCountyTransitData = await response.json();
+                    console.log("Queens County Transit data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 17. SMARTGO (NEW)
+            async function loadSMARTGOData() {
+                try {
+                    const response = await fetch('SMARTGO_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load SMARTGO_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    smartGoData = await response.json();
+                    console.log("SMARTGO data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 18. SouWest Nova Transit Association (NEW)
+            async function loadSouWestNovaData() {
+                try {
+                    const response = await fetch('SouWestNovaTransitAssociation_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load SouWestNovaTransitAssociation_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    souWestNovaData = await response.json();
+                    console.log("SouWest Nova Transit data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 19. Strait Area Transit Cooperative (NEW)
+            async function loadStraitAreaTransitData() {
+                try {
+                    const response = await fetch('StraitAreaTransitCooperative_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load StraitAreaTransitCooperative_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    straitAreaTransitData = await response.json();
+                    console.log("Strait Area Transit data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 20. Trans County Transportation Society (NEW)
+            async function loadTransCountyData() {
+                try {
+                    const response = await fetch('TransCountyTransportationSociety_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load TransCountyTransportationSociety_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    transCountyData = await response.json();
+                    console.log("Trans County Transportation data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 21. Transit Association of Guysborough (NEW)
+            async function loadGuysboroughTransitData() {
+                try {
+                    const response = await fetch('TransitAssociationofGuysborough_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load TransitAssociationofGuysborough_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    guysboroughTransitData = await response.json();
+                    console.log("Guysborough Transit data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 22. Transport de Clare Society (NEW)
+            async function loadTransportDeClareData() {
+                try {
+                    const response = await fetch('TransportdeClareSociety_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load TransportdeClareSociety_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    transportDeClareData = await response.json();
+                    console.log("Transport de Clare data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 23. Victoria County Transit (NEW)
+            async function loadVictoriaCountyTransitData() {
+                try {
+                    const response = await fetch('VictoriaCountyTransit_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load VictoriaCountyTransit_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    victoriaCountyTransitData = await response.json();
+                    console.log("Victoria County Transit data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+
+            // 24. West Hants Dial-A-Ride (NEW)
+            async function loadWestHantsDialARideData() {
+                try {
+                    const response = await fetch('WestHantsDialARide_4326.json');
+                    if (!response.ok) {
+                        throw new Error(`Failed to load WestHantsDialARide_4326.json: ${response.status} ${response.statusText}`);
+                    }
+                    westHantsDialARideData = await response.json();
+                    console.log("West Hants Dial-A-Ride data loaded successfully.");
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+            
+            // **END: ALL 24 DATA LOADING FUNCTIONS**
+            
+            document.addEventListener('DOMContentLoaded', () => {
+                Promise.all([
+                    loadPolygonData(), 
+                    loadHfxTransitData(), // 1
+                    loadAntigonishTransitData(), // 2
+                    loadBayRidesData(), // 3
+                    loadCHADTransitData(), // 4
+                    loadChesterWheelsData(), // 5
+                    loadColchesterTransitData(), // 6
+                    loadCumberlandTransitData(), // 7
+                    loadEastHantsRiderData(), // 8
+                    loadEskasoniTransitData(), // 9
+                    loadHOPEDialARideData(), // 10
+                    loadKingsPointToPointData(), // 11
+                    loadLAcabieTransportData(), // 12
+                    loadLunenburgWheelsData(), // 13
+                    loadMusGoRiderEasternShoreData(), // 14
+                    loadMusGoRiderSheetHarbourData(), // 15
+                    loadQueensCountyTransitData(), // 16
+                    loadSMARTGOData(), // 17
+                    loadSouWestNovaData(), // 18
+                    loadStraitAreaTransitData(), // 19
+                    loadTransCountyData(), // 20
+                    loadGuysboroughTransitData(), // 21
+                    loadTransportDeClareData(), // 22
+                    loadVictoriaCountyTransitData(), // 23
+                    loadWestHantsDialARideData() // 24
+                ]);
+            });
+
+            // Event listener for clinic selection
+            document.getElementById('mapContainer').addEventListener('click', (event) => {
+                const button = event.target.closest('.select-clinic-button');
+                if (button) {
+                    const locationName = button.dataset.locationName;
+                    
+                    // 1. Retrieve the entire userTransitServices object from the button's data attribute
+                    let userTransitServices;
+                    try {
+                        userTransitServices = JSON.parse(button.dataset.userTransitServices);
+                    } catch (e) {
+                        console.error("Failed to parse user transit services data:", e);
+                        userTransitServices = {};
+                    }
+                    
+                    const selectedClinicItem = button.closest('.clinic-item');
+                    // Get the address from the second <p> tag within the clinic item
+                    const clinicAddress = selectedClinicItem.querySelector('p').textContent; 
+                    
+                    document.querySelectorAll('.clinic-item').forEach(item => {
+                        item.classList.remove('bg-lime-100');
+                    });
+
+                    if (selectedClinicItem) {
+                        selectedClinicItem.classList.add('bg-lime-100');
+                    }
+
+                    const patientInfoContent = document.getElementById('patientInfoContent');
+                    const transportationInfoContent = document.getElementById('transportationInfoContent');
+                    
+                    const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${userCoordinates.lat},${userCoordinates.lng}&destination=${encodeURIComponent(clinicAddress)}`;
+                    
+                    // RETRIEVE INSTRUCTIONS USING THE NEW FUNCTION-BASED STRUCTURE
+                    const instructionsFn = clinicInstructions[locationName];
+                    const instructions = instructionsFn ? instructionsFn(clinicAddress) : `Details on how to find the clinic within the building are not yet available.`;
+
+                    const clinicLat = parseFloat(selectedClinicItem.dataset.lat);
+                    const clinicLng = parseFloat(selectedClinicItem.dataset.lng);
+                    const clinicPoint = [clinicLng, clinicLat];
+                    
+                    // **START: CHECK FOR CLINIC TRANSIT ACCESS (ALL 24 SERVICES)**
+                    let clinicTransitServices = {};
+                    let accessibleTransitExists = false;
+                    
+                    for (const key in transitServicesMap) {
+                        let isCovered = false;
+                        const service = transitServicesMap[key];
+                        const serviceData = service.data();
+                        
+                        if (serviceData) {
+                            for (const feature of serviceData.features) {
+                                if (isPointInFeature(clinicPoint, feature)) {
+                                    isCovered = true;
+                                    break;
+                                }
+                            }
+                        }
+                        clinicTransitServices[key] = isCovered;
+                        
+                        // Check if service is available for *both* patient and clinic
+                        if (userTransitServices[key] && isCovered) {
+                            accessibleTransitExists = true;
+                        }
+                    }
+
+                    // 3. Dynamic Transportation HTML Generation
+                    let accessibleTransitHtml = '';
+
+                    if (accessibleTransitExists) {
+                        for (const key in transitServicesMap) {
+                            if (userTransitServices[key] && clinicTransitServices[key]) {
+                                const service = transitServicesMap[key];
+                                // **MODIFIED LINE**: Now uses service.customMessage
+                                accessibleTransitHtml += `<p class="text-base text-gray-700 mb-2">${service.customMessage}</p>`;
+                            }
+                        }
+                    } else {
+                        accessibleTransitHtml = `<p class="text-base text-gray-700"> </p>`;
+                    }
+                    
+                    let transportationHtml = accessibleTransitHtml;
+                    
+                    // **END: CHECK FOR CLINIC TRANSIT ACCESS (ALL 24 SERVICES)**
+
+                    const newPatientInfoHtml = `
+                        <p class="text-base text-gray-700 mb-4">
+                            Thank you for booking an appointment with the Nova Scotia Lung Cancer Screening Program. Your appointment is at <span class="font-semibold">${locationName}</span>. Please refer to the separate communication from Nova Scotia Health for your specific appointment time.
+                        </p>
+                        <p class="text-base text-gray-700 mb-4">
+                            This message provides information to help you with transportation and finding the clinic.
+                        </p>
+                        <div class="mb-4">
+                            <h4 class="text-lg font-semibold text-gray-800 mb-2">Directions</h4>
+                            <p class="text-base text-gray-700">
+                                Use this <a href="${googleMapsUrl}" target="_blank" class="text-indigo-600 hover:underline font-medium">Google Maps link</a> for directions from your home to the clinic.
+                            </p>
+                        </div>
+                        <div class="mb-4">
+                            <h4 class="text-lg font-semibold text-gray-800 mb-2">Finding the Clinic</h4>
+                            <p class="text-base text-gray-700">${instructions}</p>
+                        </div>
+                        <div class="mb-4">
+                             <h4 class="text-lg font-semibold text-gray-800 mb-2">Transportation Options</h4>
+                             ${transportationHtml}
+                             <p class="text-base text-gray-700 mt-2">
+                                Check out the <a href="https://communitytransitns.ca/need-a-ride/" target="_blank" class="text-indigo-600 hover:underline font-medium">Community Transit Network</a> for general information on community-based transportation available across the province.
+                            </p>
+                        </div>
+
+                        <p class="text-base text-gray-700">
+                        
+                        </p>
+                        <button id="copyButton" class="w-full text-white font-semibold py-2 rounded-xl shadow-md mt-4 transition-all duration-300 transform hover:scale-105" style="background-color: #475979;">Copy Text</button>
+                    `;
+                    
+                    patientInfoContent.innerHTML = newPatientInfoHtml;
+                    
+                    document.getElementById('copyButton').addEventListener('click', async () => {
+                        const originalElement = document.getElementById('patientInfoContent');
+                        
+                        // 1. Create a deep clone of the content to manipulate
+                        const tempElement = originalElement.cloneNode(true);
+
+                        // 2. Remove the copy button from the clone
+                        const buttonToRemove = tempElement.querySelector('#copyButton');
+                        if (buttonToRemove) {
+                            buttonToRemove.remove();
+                        }
+                        
+                        // 3. Process links: replace the link element with its text content plus the URL in brackets for easy reference
+                        const links = tempElement.querySelectorAll('a');
+                        links.forEach(link => {
+                            const url = link.href;
+                            const linkText = link.textContent.trim();
+                            // Create a new text node with the formatted content
+                            const newText = document.createTextNode(`${linkText} (${url})`);
+                            link.parentNode.replaceChild(newText, link);
+                        });
+
+                        // 4. Extract and clean text content from the clone
+                        let contentToCopy = tempElement.textContent;
+
+                        // Clean up:
+                        // - Replace multiple line breaks with a maximum of two newlines (for paragraph spacing).
+                        contentToCopy = contentToCopy.replace(/(\r\n|\r|\n){2,}/g, '\n\n'); 
+                        
+                        // - Remove leading/trailing whitespace on each line, then trim the whole block.
+                        contentToCopy = contentToCopy.split('\n').map(line => line.trim()).join('\n').trim();
+
+                        // 5. Copy the cleaned text to the clipboard
+                        const button = document.getElementById('copyButton');
+                        try {
+                            await navigator.clipboard.writeText(contentToCopy);
+                            const originalText = button.textContent;
+                            button.textContent = "Copied!";
+                            setTimeout(() => {
+                                button.textContent = originalText;
+                            }, 2000);
+                        } catch (err) {
+                            console.error('Failed to copy text: ', err);
+                        }
+                    });
+
+                    if (map) {
+                        map.flyTo([clinicLat, clinicLng], 15);
+                    }
+                }
+            });
+
+            // Main event listeners
+            findButton.addEventListener('click', findNearestHospital);
+            
+            resetButton.addEventListener('click', () => {
+                addressInput.value = '';
+                clinicsList.innerHTML = '';
+                patientInfoContent.innerHTML = `<p class="text-base text-gray-700">Select a clinic from the list on the left to populate this section.</p>`;
+                socioeconomicText.textContent = `Enter an address to display socioeconomic data for that area.`;
+                socioeconomicList.classList.add('hidden');
+                
+                if (map) {
+                    map.remove();
+                    map = null;
+                }
+                
+                resultsMapContainer.classList.add('hidden');
+
+                clinicInfoCol.classList.add('hidden');
+                dataInfoCol.classList.add('hidden');
+                mapCol.classList.remove('md:w-1/2');
+                mapCol.classList.add('md:w-full');
+
+                suggestionsContainer.classList.add('hidden');
+                findButton.disabled = false;
+                findButton.textContent = "Find Nearest Clinic";
+            });
+
+            addressInput.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    findButton.click();
+                }
+            });
+
+            loginButton.addEventListener('click', () => {
+                const password = passwordInput.value;
+                const correctPassword = 'password';
+
+                if (password === correctPassword) {
+                    loginContainer.classList.add('hidden');
+                    appContainer.classList.remove('hidden');
+                } else {
+                    loginMessage.textContent = 'Incorrect password. Please try again.';
+                    passwordInput.value = '';
+                }
+            });
+
+            passwordInput.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    loginButton.click();
+                }
+            });
+        })();
+    </script>
+</body>
+</html>
